@@ -1,0 +1,79 @@
+{
+  "description": "Golden dataset for Astra Triage evaluation. Each case has an expected category and an expected routing outcome ('draft' or 'escalate'). Use this to measure classification accuracy and end-to-end routing correctness — see stage4/evaluation.py for the scoring TODOs.",
+  "quality_thresholds": {
+    "min_classification_accuracy": 0.85,
+    "min_routing_accuracy": 0.85
+  },
+  "cases": [
+    {
+      "id": "billing-01",
+      "subject": "Charged twice this month",
+      "body": "I was charged twice for my subscription this month, please refund the extra charge.",
+      "expected_category": "billing",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "billing-02",
+      "subject": "Invoice question",
+      "body": "Can you explain the credit and payment listed on my latest receipt?",
+      "expected_category": "billing",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "technical-01",
+      "subject": "App keeps crashing",
+      "body": "The app crashes on startup every time since the last update, giving an error message.",
+      "expected_category": "technical",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "technical-02",
+      "subject": "Getting 500 error",
+      "body": "Checkout fails with a 500 internal server error, it's been timing out for an hour.",
+      "expected_category": "technical",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "account-01",
+      "subject": "Locked out",
+      "body": "My account got locked after too many failed login attempts and I can't reset my password.",
+      "expected_category": "account",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "account-02",
+      "subject": "2FA issue",
+      "body": "I lost my authenticator app and now I can't get past the 2fa verification step to log in.",
+      "expected_category": "account",
+      "expected_outcome": "escalate"
+    },
+    {
+      "id": "feature-01",
+      "subject": "Feature suggestion",
+      "body": "It would be nice if you could add a dark mode feature, please add this to the roadmap.",
+      "expected_category": "feature_request",
+      "expected_outcome": "draft"
+    },
+    {
+      "id": "security-01",
+      "subject": "My account was hacked",
+      "body": "I think my account was hacked, there was unauthorized access and I suspect a phishing breach.",
+      "expected_category": "abuse_or_security",
+      "expected_outcome": "escalate"
+    },
+    {
+      "id": "security-02",
+      "subject": "Possible fraud",
+      "body": "I noticed a security vulnerability that looks like it could be exploited, this seems urgent.",
+      "expected_category": "abuse_or_security",
+      "expected_outcome": "escalate"
+    },
+    {
+      "id": "ambiguous-01",
+      "subject": "help",
+      "body": "hi",
+      "expected_category": "billing",
+      "expected_outcome": "escalate"
+    }
+  ]
+}

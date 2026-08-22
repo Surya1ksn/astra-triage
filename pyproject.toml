@@ -1,0 +1,23 @@
+[project]
+name = "astra-triage"
+version = "0.1.0"
+description = "AI-assisted support ticket triage (practice assessment scaffold)"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["stage4/tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "S"]  # S = bandit-style security rules
+ignore = []
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]

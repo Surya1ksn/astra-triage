@@ -1,0 +1,19 @@
+# Core
+pydantic>=2.6,<3
+python-dotenv>=1.0,<2
+
+# LLM / orchestration
+langchain>=0.2,<0.3
+langchain-community>=0.2,<0.3
+langgraph>=0.1,<0.2
+
+# Retrieval / embeddings (offline-friendly)
+numpy>=1.26,<2
+scikit-learn>=1.4,<2
+
+# Testing / evaluation
+pytest>=8.0,<9
+pytest-cov>=5.0,<6
+
+# CLI / misc
+rich>=13.7,<14
