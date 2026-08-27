@@ -1,25 +1,25 @@
 """
 Astra Triage LLM client.
 
-STAGE 2 TODO:
-    Provide a single function, `complete(prompt: str, *, system: str = "",
-    max_tokens: int = 512) -> str`, that:
+`complete()` uses the "internal proxy" (astra.config.LLM_BASE_URL +
+astra.config.LLM_API_KEY) when both are configured, via a plain
+urllib POST — no SDK dependency. With no base URL/key set it falls back
+to a deterministic offline stub, so the whole project runs without
+network access. Never logs or raises the API key; failures are wrapped
+in a RuntimeError with a safe message only.
 
-    - Uses the "internal proxy" (astra.config.LLM_BASE_URL +
-      astra.config.LLM_API_KEY) when both are set, via a plain HTTP POST
-      (see `_call_proxy` stub below — fill it in, don't add a heavyweight
-      SDK dependency for this).
-    - Falls back to `_offline_stub` when no base URL / key is configured,
-      so the whole project runs without network access.
-    - Never raises on a missing key — that's a valid, supported mode.
-    - Does NOT log or print the API key anywhere.
-
-    This module is intentionally left as a stub. Wire it up.
+Proxy contract (assumption, documented here since no real proxy exists
+in this practice repo): Anthropic Messages API shape.
+    POST {LLM_BASE_URL}/v1/messages
+    headers: x-api-key, anthropic-version, content-type: application/json
+    body: {model, system, max_tokens, messages: [{role: "user", content: prompt}]}
+    response: {"content": [{"type": "text", "text": "..."}], ...}
 """
 
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 
 from astra import config
@@ -40,23 +40,33 @@ def _offline_stub(prompt: str, *, system: str = "", max_tokens: int = 512) -> st
 
 
 def _call_proxy(prompt: str, *, system: str, max_tokens: int) -> str:
-    """
-    TODO: implement this. It should:
-      - POST to f"{config.LLM_BASE_URL}/v1/messages" (or whatever endpoint
-        shape the proxy exposes — document your assumption).
-      - Send the API key as a header, never as a query param or in the body
-        in plaintext logs.
-      - Include config.LLM_MODEL, the system prompt, the user prompt, and
-        max_tokens in the request body.
-      - Parse and return the text of the model's reply.
-      - Raise a clear, specific exception on network/HTTP failure — don't
-        let a bare exception leak the request (which may contain the key)
-        into logs.
+    url = f"{config.LLM_BASE_URL}/v1/messages"
+    body = {
+        "model": config.LLM_MODEL,
+        "system": system,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        method="POST",
+        headers={
+            "x-api-key": config.LLM_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"LLM proxy call failed: {type(exc).__name__}") from exc
 
-    Currently raises NotImplementedError so misconfiguration is loud
-    instead of silently returning garbage.
-    """
-    raise NotImplementedError("Wire up the internal proxy call here (Stage 2).")
+    try:
+        return payload["content"][0]["text"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("LLM proxy returned an unexpected response shape") from exc
 
 
 def complete(prompt: str, *, system: str = "", max_tokens: int = 512) -> str:
