@@ -84,18 +84,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} # built-in token, no extra secret needed
 
+      - name: Compute lowercase image repository
+        run: echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+        # GHCR (like all OCI registries) requires an all-lowercase repository
+        # name. github.repository preserves the GitHub username/org's actual
+        # case (Surya1ksn/astra-triage), which a real run of this workflow
+        # caught failing with "repository name must be lowercase" -- ${VAR,,}
+        # is bash's built-in lowercase expansion, no extra action needed.
+
       - name: Build and push canary image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
-            ghcr.io/${{ github.repository }}:canary
+            ghcr.io/${{ env.IMAGE_REPO }}:${{ github.sha }}
+            ghcr.io/${{ env.IMAGE_REPO }}:canary
 
       - name: Canary published
         run: |
-          echo "Canary image: ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          echo "Canary image: ghcr.io/${{ env.IMAGE_REPO }}:${{ github.sha }}"
           echo "Also tagged :canary. See the evaluate job's summary above for the"
           echo "accuracy numbers to compare against the current :stable tag before"
           echo "approving promote-production below."
@@ -119,13 +127,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute lowercase image repository
+        run: echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Promote canary image to stable
         run: |
-          docker pull "ghcr.io/${{ github.repository }}:${{ github.sha }}"
-          docker tag "ghcr.io/${{ github.repository }}:${{ github.sha }}" \
-            "ghcr.io/${{ github.repository }}:stable"
-          docker tag "ghcr.io/${{ github.repository }}:${{ github.sha }}" \
-            "ghcr.io/${{ github.repository }}:latest"
-          docker push "ghcr.io/${{ github.repository }}:stable"
-          docker push "ghcr.io/${{ github.repository }}:latest"
+          docker pull "ghcr.io/${{ env.IMAGE_REPO }}:${{ github.sha }}"
+          docker tag "ghcr.io/${{ env.IMAGE_REPO }}:${{ github.sha }}" \
+            "ghcr.io/${{ env.IMAGE_REPO }}:stable"
+          docker tag "ghcr.io/${{ env.IMAGE_REPO }}:${{ github.sha }}" \
+            "ghcr.io/${{ env.IMAGE_REPO }}:latest"
+          docker push "ghcr.io/${{ env.IMAGE_REPO }}:stable"
+          docker push "ghcr.io/${{ env.IMAGE_REPO }}:latest"
           echo "Promoted ${{ github.sha }} to :stable and :latest."
