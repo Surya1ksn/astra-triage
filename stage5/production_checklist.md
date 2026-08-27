@@ -90,4 +90,4 @@ exercise).
 - [x] Stage 1 diagram matches the implemented graph.
       Completed and verified line-by-line against `astra/graph.py` after
       Stage 3 was built (see `stage1/diagrams/pipeline.md`).
-- [ ] PR description (Stage 6) completed. Not yet -- Stage 6 is next.
+- [x] PR description (Stage 6) completed. See `stage6/PR_DESCRIPTION.md`.
