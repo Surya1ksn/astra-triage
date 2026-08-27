@@ -14,6 +14,8 @@ the system prompt.
 
 from __future__ import annotations
 
+import re
+
 from astra import llm_client
 from astra.retrieval import Document
 
@@ -25,6 +27,25 @@ UNSAFE_OUTPUT_MARKERS = (
     "i have issued a refund",
     "refund has been approved",
     "your card number",
+)
+
+# Regex patterns catching morphological/tense variants the exact-phrase
+# markers above miss (e.g. "disabled 2fa", which the model would say when
+# describing a completed action, vs. the listed "disable 2fa"). The
+# refund/credit patterns deliberately match only PAST-TENSE/completed
+# verb forms (issued/approved/processed), not the bare "issue" stem --
+# SYSTEM_PROMPT's own text uses the imperative form ("issue refunds", as
+# something to refuse), and the offline stub echoes SYSTEM_PROMPT
+# verbatim in its debug output, so matching the bare stem would flag
+# every offline-mode draft again (see the audit log's false-positive
+# investigation). "disable" has no such collision -- it never appears in
+# SYSTEM_PROMPT -- so that pattern is safe to match in any tense.
+_UNSAFE_PATTERNS = (
+    re.compile(r"\bdisabl\w*\b.{0,40}\b(2fa|two[- ]factor)\b"),
+    re.compile(r"\b(2fa|two[- ]factor)\b.{0,40}\bdisabl\w*\b"),
+    re.compile(r"\b(issued|approved|processed)\b.{0,40}\brefund"),
+    re.compile(r"\brefund\w*\b.{0,40}\b(issued|approved|processed)\b"),
+    re.compile(r"\b\d{13,19}\b"),  # raw card-number-shaped digit sequence
 )
 
 SYSTEM_PROMPT = """You are Astra, a customer support drafting assistant.
@@ -55,7 +76,9 @@ SAFE_FALLBACK_DRAFT = (
 
 def _looks_unsafe(draft_text: str) -> bool:
     lowered = draft_text.lower()
-    return any(marker in lowered for marker in UNSAFE_OUTPUT_MARKERS)
+    if any(marker in lowered for marker in UNSAFE_OUTPUT_MARKERS):
+        return True
+    return any(pattern.search(lowered) for pattern in _UNSAFE_PATTERNS)
 
 
 def _build_prompt(subject: str, body: str, retrieved_docs: list[Document]) -> str:

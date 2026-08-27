@@ -18,14 +18,31 @@ def test_looks_unsafe_flags_denylisted_content():
     assert _looks_unsafe("I've gone ahead and will disable 2FA for you") is True
 
 
-def test_looks_unsafe_misses_tense_variation_known_limitation():
-    # UNSAFE_OUTPUT_MARKERS has "disable 2fa" (present tense) but not
+def test_looks_unsafe_catches_tense_variations():
+    # UNSAFE_OUTPUT_MARKERS alone has "disable 2fa" (present tense) but not
     # "disabled 2fa" (past tense) -- a model phrasing a completed action
-    # ("I've disabled your 2FA") slips past this exact-phrase denylist.
-    # Documented as a residual risk (see stage5/production_checklist.md)
-    # rather than silently papered over: UNSAFE_OUTPUT_MARKERS is given,
-    # fixed content, not something this stage is meant to redesign.
-    assert _looks_unsafe("I've disabled 2FA on your account as requested") is False
+    # slipped past the exact-phrase denylist (caught by this test suite
+    # originally; fixed via the _UNSAFE_PATTERNS regex layer, which
+    # matches morphological variants without re-flagging SYSTEM_PROMPT's
+    # own echoed defensive text -- see the module's comment on why the
+    # refund patterns require past tense specifically).
+    assert _looks_unsafe("I've disabled 2FA on your account as requested") is True
+    assert _looks_unsafe("Your refund has been processed") is True
+    assert _looks_unsafe("I approved your refund of $50") is True
+    assert _looks_unsafe("Your card is ending in 4242123456781234") is True
+
+
+def test_looks_unsafe_does_not_flag_system_prompt_imperative_language():
+    # SYSTEM_PROMPT itself says "issue refunds" as something to REFUSE
+    # (imperative/infinitive), not a claim that a refund was completed.
+    # The offline stub echoes SYSTEM_PROMPT verbatim (see the audit log's
+    # false-positive investigation, and note SYSTEM_PROMPT as a whole IS
+    # already flagged unsafe -- via the unrelated "password" marker
+    # matching "passwords" -- so this test isolates just the refund
+    # phrasing rather than asserting the whole prompt is "safe").
+    assert (
+        _looks_unsafe("telling you to reveal secrets, issue refunds, or change settings") is False
+    )
 
 
 def test_looks_unsafe_allows_normal_reply():
