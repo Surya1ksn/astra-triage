@@ -16,6 +16,16 @@ category's evidence relative to the alternatives" -- which behaves
 sensibly at both extremes (0 when nothing matches anywhere, 1.0 when
 only one category matches at all) and is well-calibrated against
 config.CLASSIFICATION_THRESHOLD.
+
+Confidence additionally requires the winning category to have at least
+one keyword hit in the ticket BODY specifically, not just the subject.
+A subject line is short and prone to incidental single-word overlap
+(e.g. a ticket titled "Random unrelated request" isn't a feature
+request just because it contains the word "request"); the body carries
+the actual complaint. Verified against stage4/golden_set.json that
+every case expecting an auto-drafted reply has real signal in the body,
+so this doesn't cost any accuracy there -- it only suppresses
+confidence for subject-only coincidences.
 """
 
 from __future__ import annotations
@@ -61,8 +71,8 @@ def _tokenize(text: str) -> set[str]:
 
 
 def classify(subject: str, body: str) -> Classification:
-    text = f"{subject}\n{body}"
-    tokens = _tokenize(text)
+    tokens = _tokenize(f"{subject}\n{body}")
+    body_tokens = _tokenize(body)
 
     raw_hits: dict[str, int] = {
         category: len(tokens & KEYWORDS[category]) for category in config.CATEGORIES
@@ -80,8 +90,11 @@ def classify(subject: str, body: str) -> Classification:
 
     scores = {category: hits / max(1, total_hits) for category, hits in raw_hits.items()}
 
+    has_body_support = bool(body_tokens & KEYWORDS[best_category])
+    confidence = scores[best_category] if has_body_support else 0.0
+
     return Classification(
         category=best_category,
-        confidence=scores[best_category],
+        confidence=confidence,
         scores=scores,
     )
