@@ -1,46 +1,19 @@
 """
 Astra Triage LangGraph orchestration.
 
-STAGE 3 TODO:
-    Build the actual state graph described in stage1/diagrams/pipeline.md
-    and stage3/NOTES.md using LangGraph. Currently `build_graph()` and
-    `run_ticket()` are stubs.
-
-    Expected shape:
-
-      TriageState (TypedDict or pydantic model) should carry at least:
-        subject, body, classification, retrieved, draft, escalated,
-        escalation_reason
-
-      Nodes:
-        - classify_node: runs astra.classifier.classify, writes
-          `classification` into state.
-        - retrieve_node: runs KnowledgeBase().search_relevant() using the
-          ticket text as the query, writes `retrieved` into state.
-        - draft_node: runs astra.draft.draft_response, writes `draft`.
-        - escalate_node: sets `escalated = True` and a human-readable
-          `escalation_reason`.
-
-      Conditional routing (implement as a LangGraph conditional edge
-      function, not buried inside a node):
-        - after classify_node: if classification.category in
-          config.ALWAYS_ESCALATE_CATEGORIES, or confidence below
-          config.CLASSIFICATION_THRESHOLD -> escalate_node.
-          Otherwise -> retrieve_node.
-        - after retrieve_node: if `retrieved` is empty -> escalate_node.
-          Otherwise -> draft_node.
-        - draft_node and escalate_node both terminate the graph.
-
-    Keep node functions small and testable independent of LangGraph
-    itself where reasonable (e.g. a pure `_decide_after_classify(state)
-    -> str` helper you can unit test directly, that the LangGraph
-    conditional edge just calls).
+Wires classify -> route -> retrieve -> route -> draft/escalate into a
+LangGraph state machine per stage1/diagrams/pipeline.md. Routing
+decisions are pure functions (_decide_after_classify,
+_decide_after_retrieve) independently testable from LangGraph itself;
+the conditional edges just call them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from langgraph.graph import END, StateGraph
 
 from astra import config
 from astra.classifier import Classification, classify
@@ -60,30 +33,76 @@ class TriageState:
 
 
 def _decide_after_classify(state: TriageState) -> str:
-    """TODO: return 'escalate' or 'retrieve' per the routing rules above."""
-    raise NotImplementedError("Implement post-classification routing (Stage 3).")
+    classification = state.classification
+    if classification.category in config.ALWAYS_ESCALATE_CATEGORIES:
+        return "escalate"
+    if classification.confidence < config.CLASSIFICATION_THRESHOLD:
+        return "escalate"
+    return "retrieve"
 
 
 def _decide_after_retrieve(state: TriageState) -> str:
-    """TODO: return 'escalate' or 'draft' per the routing rules above."""
-    raise NotImplementedError("Implement post-retrieval routing (Stage 3).")
+    return "draft" if state.retrieved else "escalate"
+
+
+def _classify_node(state: TriageState) -> dict:
+    return {"classification": classify(state.subject, state.body)}
+
+
+def _make_retrieve_node(knowledge_base: KnowledgeBase):
+    def _retrieve_node(state: TriageState) -> dict:
+        query = f"{state.subject}\n{state.body}"
+        return {"retrieved": knowledge_base.search_relevant(query)}
+
+    return _retrieve_node
+
+
+def _draft_node(state: TriageState) -> dict:
+    docs = [doc for doc, _score in state.retrieved]
+    return {"draft": draft_response(state.subject, state.body, docs)}
+
+
+def _escalate_node(state: TriageState) -> dict:
+    classification = state.classification
+    if classification is not None and classification.category in config.ALWAYS_ESCALATE_CATEGORIES:
+        reason = f"category '{classification.category}' always requires human review"
+    elif classification is not None and classification.confidence < config.CLASSIFICATION_THRESHOLD:
+        reason = (
+            f"classification confidence {classification.confidence:.2f} below "
+            f"threshold {config.CLASSIFICATION_THRESHOLD:.2f}"
+        )
+    else:
+        reason = "no relevant knowledge-base content found"
+    return {"escalated": True, "escalation_reason": reason}
 
 
 def build_graph(knowledge_base: KnowledgeBase | None = None) -> Any:
-    """TODO: construct and compile a LangGraph StateGraph wiring together
-    classify_node -> (conditional) -> retrieve_node -> (conditional) ->
-    draft_node / escalate_node, using _decide_after_classify /
-    _decide_after_retrieve as the conditional-edge functions.
+    kb = knowledge_base if knowledge_base is not None else KnowledgeBase()
 
-    Accept an optional pre-built KnowledgeBase so tests/evaluation don't
-    have to rebuild the TF-IDF index for every run.
-    """
-    raise NotImplementedError("Build the LangGraph state graph (Stage 3).")
+    graph = StateGraph(TriageState)
+    graph.add_node("classify_node", _classify_node)
+    graph.add_node("retrieve_node", _make_retrieve_node(kb))
+    graph.add_node("draft_node", _draft_node)
+    graph.add_node("escalate_node", _escalate_node)
+
+    graph.set_entry_point("classify_node")
+    graph.add_conditional_edges(
+        "classify_node",
+        _decide_after_classify,
+        {"retrieve": "retrieve_node", "escalate": "escalate_node"},
+    )
+    graph.add_conditional_edges(
+        "retrieve_node",
+        _decide_after_retrieve,
+        {"draft": "draft_node", "escalate": "escalate_node"},
+    )
+    graph.add_edge("draft_node", END)
+    graph.add_edge("escalate_node", END)
+
+    return graph.compile()
 
 
 def run_ticket(subject: str, body: str, knowledge_base: KnowledgeBase | None = None) -> TriageState:
-    """TODO: run a single ticket through the compiled graph and return the
-    final TriageState. This is the function stage3/main.py and
-    stage4/evaluation.py should call.
-    """
-    raise NotImplementedError("Implement run_ticket (Stage 3).")
+    compiled = build_graph(knowledge_base)
+    result = compiled.invoke(TriageState(subject=subject, body=body))
+    return TriageState(**result)
