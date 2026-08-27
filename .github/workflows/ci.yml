@@ -1,0 +1,91 @@
+# Astra Triage CI/CD pipeline. See stage5/pipeline.yml for the original
+# skeleton this was filled in from, and stage5/deployment.md for the
+# canary/rollback strategy the deploy job's placeholder step documents.
+#
+# Gating: deploy needs [test, evaluate] -- both must succeed, so a deploy
+# is impossible if either unit tests or the golden-set evaluation fail.
+
+name: astra-triage-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Lint
+        run: |
+          ruff check astra stage4
+          black --check astra stage4
+      - name: Unit tests
+        run: |
+          pytest --cov=astra --cov-report=term-missing
+
+  evaluate:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run golden-set evaluation
+        run: |
+          python stage4/evaluation.py
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, evaluate] # both required -- deploy is impossible if either fails
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    permissions:
+      contents: read
+      packages: write # required to push to GHCR below
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # built-in token, no extra secret needed
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            ghcr.io/${{ github.repository }}:latest
+
+      # Real deploy target/canary rollout is documented, not implemented: this
+      # practice repo has no live cluster or environment to actually deploy
+      # to. See stage5/deployment.md for the assumed target platform and the
+      # canary/rollback strategy a real version of this step would execute
+      # (route a small percentage of traffic to the new image tag, compare
+      # evaluation/escalation metrics against the previous version before
+      # widening, auto-rollback on regression).
+      - name: Deploy (canary rollout -- see stage5/deployment.md)
+        run: |
+          echo "Image pushed: ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          echo "No live target environment in this practice repo -- see stage5/deployment.md"
+          echo "for the documented canary/rollback strategy a real deploy step would run here."

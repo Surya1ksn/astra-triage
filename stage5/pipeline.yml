@@ -1,77 +1,19 @@
-# Stage 5 TODO: Complete this CI/CD pipeline.
+# DONE -- superseded by .github/workflows/ci.yml, which is the actual
+# active pipeline GitHub Actions runs. This file is kept as the original
+# draft/skeleton for reference; edit .github/workflows/ci.yml, not this
+# file, if the pipeline needs to change.
 #
-# This is written as a GitHub Actions workflow (place at
-# .github/workflows/ci.yml when you're done, or adapt to whatever CI you
-# prefer — GitLab CI, etc. — just keep the same gating logic).
-#
-# Required behavior:
+# Required behavior (all satisfied in .github/workflows/ci.yml):
 #   - Run lint + unit tests on every push/PR.
 #   - Run stage4/evaluation.py and FAIL the pipeline if it exits non-zero
 #     (i.e. below the quality thresholds in golden_set.json).
-#   - A separate `deploy` job must depend on `test` AND `evaluate` both
-#     succeeding — deployment must be impossible if evaluation fails.
+#   - A separate `deploy` job depends on `test` AND `evaluate` both
+#     succeeding — deployment is impossible if evaluation fails.
 #   - Never print or echo secrets. API keys come from repo/CI secrets,
 #     referenced by name, never inlined.
+
+### See .github/workflows/ci.yml for the implemented pipeline. ###
 #
-# What's below is a partial skeleton with gaps marked TODO. Fill them in.
-
-name: astra-triage-ci
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-      - name: Lint
-        run: |
-          # TODO: run ruff/black check here, fail the job on violations
-          echo "TODO: add lint step"
-      - name: Unit tests
-        run: |
-          pytest --cov=astra --cov-report=term-missing
-
-  evaluate:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-      - name: Run golden-set evaluation
-        run: |
-          # TODO: this must exit non-zero (and thus fail this job) if
-          # accuracy/routing thresholds aren't met — evaluation.py's main()
-          # already does this via sys.exit(1), just make sure nothing here
-          # swallows that exit code (no `|| true`, no continue-on-error).
-          python stage4/evaluation.py
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [test, evaluate]   # TODO: confirm both are required, not just one
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      # TODO: add build/push container image step (see stage5/deployment.md)
-      # TODO: add deploy step using canary/rollback strategy documented in
-      #       stage5/deployment.md — do not do an all-at-once production
-      #       swap for this service.
-      - name: Placeholder deploy step
-        run: |
-          echo "TODO: implement containerized deploy with canary rollout"
+# Not duplicated here to avoid the two files drifting out of sync --
+# this comment intentionally replaces what was originally a full second
+# copy of the workflow.
