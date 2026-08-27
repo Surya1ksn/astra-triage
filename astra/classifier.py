@@ -1,26 +1,10 @@
 """
 Astra Triage ticket classifier.
 
-STAGE 2 TODO (bug #2 — ranking logic):
-    `classify()` is supposed to return the category with the HIGHEST
-    keyword-overlap score, plus a confidence in [0, 1]. As written it has
-    at least two bugs:
-
-    1. It iterates categories in a way that keeps the *first* category
-       whose score is merely >= the running best, using the wrong
-       comparison operator — so ties (and the deliberately-ordered
-       CATEGORIES list) silently favor whichever category happens to come
-       first, not the true best match.
-    2. Confidence is computed as raw keyword hits without normalizing by
-       ticket length or keyword-set size, so a long ticket that happens to
-       mention one billing word gets an inflated "confident" score, and a
-       short precise ticket gets an artificially low one.
-
-    Fix the ranking so it genuinely returns the best-scoring category, and
-    fix the confidence calculation so it's a normalized value in [0, 1]
-    that behaves sensibly (e.g. Jaccard-style overlap, or hits / max(1,
-    len(keywords))). Add/adjust unit tests in stage4/tests to lock in the
-    corrected behavior.
+Ranks categories by normalized keyword overlap (hits / size of that
+category's keyword set) and returns the true best-scoring category. Ties
+resolve to the first-seen category in config.CATEGORIES order (an
+explicit, documented tiebreak rather than an accident of iteration).
 """
 
 from __future__ import annotations
@@ -72,21 +56,19 @@ def classify(subject: str, body: str) -> Classification:
     scores: dict[str, float] = {}
     for category in config.CATEGORIES:
         hits = len(tokens & KEYWORDS[category])
-        scores[category] = float(hits)  # BUG: not normalized
+        scores[category] = hits / max(1, len(KEYWORDS[category]))
 
     best_category = config.CATEGORIES[0]
     best_score = -1.0
     for category in config.CATEGORIES:
-        # BUG: `>=` means later categories with an EQUAL score overwrite
-        # earlier, higher-priority ones, and ties aren't resolved by any
-        # real tiebreak rule (should be first-seen-wins on true ties, or
-        # an explicit documented tiebreak).
-        if scores[category] >= best_score:
+        # Strict `>` so a true tie keeps the first-seen (higher-priority)
+        # category instead of being overwritten by a later equal score.
+        if scores[category] > best_score:
             best_score = scores[category]
             best_category = category
 
     return Classification(
         category=best_category,
-        confidence=best_score,  # BUG: raw hit count, not a [0,1] confidence
+        confidence=best_score,
         scores=scores,
     )
