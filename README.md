@@ -34,19 +34,24 @@ Astra Triage is an AI-assisted support-ticket triage service:
 
 ```
 astra-triage/
-├── requirements.txt          # Python deps
+├── requirements.txt          # Python deps (incl. ruff/black for CI lint)
 ├── pyproject.toml            # project config, linting, pytest config
-├── astra/                    # the actual importable package (fill this in)
+├── Dockerfile                 # multi-stage build for the CLI service
+├── .dockerignore
+├── .github/workflows/ci.yml  # active CI/CD pipeline (lint + test + evaluate + deploy)
+├── astra/                    # the actual importable package
 │   ├── __init__.py
-│   ├── config.py             # BROKEN: hardcoded secret, fix in Stage 2
-│   ├── llm_client.py         # STUB: wire up to the "internal proxy"
-│   ├── classifier.py         # BUGGY: ranking logic is wrong
-│   ├── retrieval.py          # INCOMPLETE: LangChain retrieval TODOs
-│   ├── draft.py              # INCOMPLETE: response drafting, Stage 3
-│   ├── graph.py              # INCOMPLETE: LangGraph orchestration, Stage 3
-│   └── main.py               # CLI entrypoint, Stage 3
+│   ├── config.py             # secrets/thresholds from env, validated
+│   ├── llm_client.py         # offline stub + live proxy client
+│   ├── classifier.py         # keyword-overlap classifier
+│   ├── retrieval.py          # offline TF-IDF retrieval
+│   ├── draft.py              # response drafting + prompt-injection defense
+│   ├── graph.py              # LangGraph orchestration, error containment
+│   └── main.py               # CLI entrypoint
 ├── data/
 │   └── knowledge_base/       # markdown KB articles used for retrieval
+├── docs/
+│   └── Astra_Triage_Audit_Log.docx  # full identify/fix/evaluate/test change log
 ├── stage0/GIT_USAGE.md
 ├── stage1/diagrams/pipeline.md
 ├── stage2/NOTES.md           # stage-2 specific instructions
@@ -54,7 +59,7 @@ astra-triage/
 ├── stage4/golden_set.json
 ├── stage4/evaluation.py
 ├── stage4/tests/
-├── stage5/pipeline.yml
+├── stage5/pipeline.yml       # original draft skeleton; superseded by .github/workflows/ci.yml
 ├── stage5/deployment.md
 ├── stage5/production_checklist.md
 ├── stage6/PR_DESCRIPTION.md  # template you fill in at the end
