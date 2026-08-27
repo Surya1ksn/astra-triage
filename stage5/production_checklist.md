@@ -23,17 +23,18 @@ exercise).
       instruction that their contents are data, not commands. Verified
       end-to-end against the planted injection payload in
       `feature-request-process.md`.
-- [~] No security/financial actions are ever claimed as completed.
+- [x] No security/financial actions are ever claimed as completed.
       `SYSTEM_PROMPT` hard rules + `UNSAFE_OUTPUT_MARKERS` post-generation
-      validation (defense in depth, not reliance on the model alone).
-      **Known limitation** (caught by `stage4/tests/test_draft_safety.py`,
-      added this stage): the denylist is exact-phrase, not semantic --
-      it has "disable 2fa" but not "disabled 2fa", so a model phrasing a
-      completed action in past tense could slip through. Documented, not
-      silently fixed, since `UNSAFE_OUTPUT_MARKERS` is given/fixed
-      content this exercise didn't scope for redesign. A production
-      version should use broader pattern matching or a second
-      classifier pass, not an exact-phrase list.
+      validation (defense in depth, not reliance on the model alone),
+      now supplemented with `_UNSAFE_PATTERNS` regex matching that
+      catches tense/morphological variants (e.g. "disabled 2fa", not
+      just "disable 2fa") the original exact-phrase list missed --
+      deliberately scoped to past-tense/completed-action forms so it
+      doesn't re-flag `SYSTEM_PROMPT`'s own imperative language ("issue
+      refunds" as something to refuse). Verified via
+      `stage4/tests/test_draft_safety.py`, including a dedicated test
+      that the refund pattern does NOT false-positive against the
+      system prompt's own text.
 
 ## Testing
 
@@ -48,8 +49,10 @@ exercise).
       Python API and the CLI.
 - [x] Golden-set evaluation runs in CI and gates deployment.
       `.github/workflows/ci.yml`'s `evaluate` job runs
-      `python stage4/evaluation.py`; `deploy` requires both `test` AND
-      `evaluate` to succeed.
+      `python stage4/evaluation.py`; `publish-canary` requires both
+      `test` AND `evaluate` to succeed, and `promote-production`
+      requires `publish-canary`. Confirmed by an actual GitHub Actions
+      run, not just reading the YAML (see Operability below).
 
 ## Reliability
 
@@ -69,13 +72,23 @@ exercise).
 
 - [x] SLOs defined (see deployment.md). Documented targets, not
       measured against live traffic -- there is none in this exercise.
-- [x] Rollback/canary strategy defined (see deployment.md). Documented
-      strategy; not automated (no live orchestrator exists to automate
-      against in this practice repo).
+- [x] Rollback/canary strategy defined (see deployment.md), and the
+      publish/promote gate between canary and production is now a real,
+      working mechanism in CI (`publish-canary` -> `promote-production`
+      under separate GitHub Environments), not documentation alone.
+      Real traffic-splitting and live-metric comparison remain
+      documented-only -- no live orchestrator exists in this practice
+      repo to automate against.
 - [x] CI/CD pipeline gates deploy on tests + evaluation passing.
-      `.github/workflows/ci.yml`, verified by reading the job graph
-      (`deploy: needs: [test, evaluate]`) -- not verified by an actual
-      GitHub Actions run, since that requires pushing to GitHub.
+      **Verified with a real GitHub Actions run**, not just by reading
+      the YAML: pushed to GitHub and confirmed `test`, `evaluate`,
+      `publish-canary`, and `promote-production` all completed with
+      `conclusion: success` (run
+      https://github.com/Surya1ksn/astra-triage/actions/runs/33087018428).
+      That real run caught an actual bug -- GHCR requires lowercase
+      repository names but `github.repository` preserves the account's
+      case -- which no amount of local review or YAML validation would
+      have found; fixed and re-verified.
 - [x] Logging in place that never logs secrets or full ticket PII.
       `graph.py`'s `run_ticket()` logs category/confidence/retrieved
       count/escalated/reason only -- never subject/body text or any

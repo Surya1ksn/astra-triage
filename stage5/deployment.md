@@ -15,11 +15,20 @@
       `Dockerfile` never references `ASTRA_LLM_API_KEY` or any secret at
       build time, only `astra/config.py` reads it at *runtime* from the
       environment.
-- **Not verified**: Docker isn't installed in the environment this audit
-  ran in, so `docker build`/`docker run` were never actually executed
-  against this Dockerfile. Reviewed carefully but this is a real,
-  documented gap — a real build/run smoke test is recommended before
-  this ships anywhere.
+- [x] **Verified by a real GitHub Actions run**, not just local review:
+  Docker isn't installed in the environment this audit ran in, so the
+  Dockerfile was pushed and built on a GitHub-hosted `ubuntu-latest`
+  runner instead. That real run caught an actual bug local YAML/code
+  review missed — `docker/build-push-action` failed with "repository
+  name must be lowercase" because `github.repository` preserves the
+  account's actual case (`Surya1ksn/astra-triage`) but GHCR requires an
+  all-lowercase repository name. Fixed (see `.github/workflows/ci.yml`'s
+  "Compute lowercase image repository" step) and re-verified: `test`,
+  `evaluate`, `publish-canary`, and `promote-production` all completed
+  with `conclusion: success` on run
+  https://github.com/Surya1ksn/astra-triage/actions/runs/33087018428,
+  confirming the image actually builds and pushes to
+  `ghcr.io/surya1ksn/astra-triage`.
 
 ## Deployment method
 
