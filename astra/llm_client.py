@@ -32,22 +32,23 @@ def _offline_stub(prompt: str, *, system: str = "", max_tokens: int = 512) -> st
     keep golden-set evaluation runnable offline), but obviously not a
     real model.
     """
-    return (
-        "[offline-stub response]\n"
-        f"system={system!r}\n"
-        f"prompt_preview={prompt[:200]!r}"
-    )
+    return "[offline-stub response]\n" f"system={system!r}\n" f"prompt_preview={prompt[:200]!r}"
 
 
 def _call_proxy(prompt: str, *, system: str, max_tokens: int) -> str:
     url = f"{config.LLM_BASE_URL}/v1/messages"
+    if not url.lower().startswith(("http://", "https://")):
+        raise RuntimeError("ASTRA_LLM_BASE_URL must be an http(s) URL")
     body = {
         "model": config.LLM_MODEL,
         "system": system,
         "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
-    request = urllib.request.Request(
+    # S310 (both this Request and the urlopen call below): ruff can't see the
+    # scheme guard above -- url is checked to be http(s) before either call,
+    # so file:// and other unexpected schemes are already rejected.
+    request = urllib.request.Request(  # noqa: S310
         url,
         data=json.dumps(body).encode("utf-8"),
         method="POST",
@@ -58,7 +59,7 @@ def _call_proxy(prompt: str, *, system: str, max_tokens: int) -> str:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError) as exc:
         raise RuntimeError(f"LLM proxy call failed: {type(exc).__name__}") from exc

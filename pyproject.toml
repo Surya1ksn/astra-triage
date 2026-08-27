@@ -18,6 +18,11 @@ target-version = "py310"
 select = ["E", "F", "I", "S"]  # S = bandit-style security rules
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# S101 (assert) is pytest's own assertion mechanism, not a real risk in
+# test code -- standard practice is to exclude test dirs, not rewrite tests.
+"stage4/tests/*" = ["S101"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]

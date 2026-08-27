@@ -21,6 +21,7 @@ def test_search_returns_relevant_billing_doc():
     top_doc, top_score = results[0]
     assert "billing" in top_doc.id
 
+
 def test_search_relevant_filters_low_scores():
     kb = KnowledgeBase()
     results = kb.search_relevant("purple giraffe skateboard wizard", threshold=0.3)
