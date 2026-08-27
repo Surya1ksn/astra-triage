@@ -1,9 +1,17 @@
-# Astra Triage CI/CD pipeline. See stage5/pipeline.yml for the original
-# skeleton this was filled in from, and stage5/deployment.md for the
-# canary/rollback strategy the deploy job's placeholder step documents.
+# Astra Triage CI/CD pipeline. Runs entirely on GitHub-hosted runners via
+# GitHub Actions. See stage5/pipeline.yml for the original skeleton this
+# was filled in from, and stage5/deployment.md for the full canary/
+# rollback strategy this pipeline's two-stage publish/promote structure
+# implements the gating half of.
 #
-# Gating: deploy needs [test, evaluate] -- both must succeed, so a deploy
-# is impossible if either unit tests or the golden-set evaluation fail.
+# Gating: publish-canary needs [test, evaluate] -- both must succeed, so
+# even a canary image can't be published if unit tests or the golden-set
+# evaluation fail. promote-production needs publish-canary AND runs under
+# the `production` GitHub Environment, which is where a repo admin
+# configuring required reviewers (Settings -> Environments -> production)
+# turns this into a real manual approval gate before anything is promoted
+# -- that one-time repo configuration step is outside this file; see
+# stage5/deployment.md.
 
 name: astra-triage-ci
 
@@ -45,13 +53,21 @@ jobs:
           pip install -r requirements.txt
       - name: Run golden-set evaluation
         run: |
-          python stage4/evaluation.py
+          set -o pipefail
+          # `set -o pipefail` is required here: without it, `tee`'s own exit
+          # code (always 0) would mask evaluation.py's sys.exit(1) on
+          # failure, silently defeating the "fail the job on low accuracy"
+          # gate this step exists for. Also writes to $GITHUB_STEP_SUMMARY
+          # so a human reviewing the canary promotion below can see the
+          # actual accuracy numbers this build cleared, not just a pass/fail
+          # badge.
+          python stage4/evaluation.py | tee "$GITHUB_STEP_SUMMARY"
 
-  deploy:
+  publish-canary:
     runs-on: ubuntu-latest
-    needs: [test, evaluate] # both required -- deploy is impossible if either fails
+    needs: [test, evaluate] # both required -- publishing is impossible if either fails
     if: github.ref == 'refs/heads/main'
-    environment: production
+    environment: staging # no approval gate expected here -- automatic on a green main
     permissions:
       contents: read
       packages: write # required to push to GHCR below
@@ -68,24 +84,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }} # built-in token, no extra secret needed
 
-      - name: Build and push image
+      - name: Build and push canary image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:${{ github.sha }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:canary
 
-      # Real deploy target/canary rollout is documented, not implemented: this
-      # practice repo has no live cluster or environment to actually deploy
-      # to. See stage5/deployment.md for the assumed target platform and the
-      # canary/rollback strategy a real version of this step would execute
-      # (route a small percentage of traffic to the new image tag, compare
-      # evaluation/escalation metrics against the previous version before
-      # widening, auto-rollback on regression).
-      - name: Deploy (canary rollout -- see stage5/deployment.md)
+      - name: Canary published
         run: |
-          echo "Image pushed: ghcr.io/${{ github.repository }}:${{ github.sha }}"
-          echo "No live target environment in this practice repo -- see stage5/deployment.md"
-          echo "for the documented canary/rollback strategy a real deploy step would run here."
+          echo "Canary image: ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          echo "Also tagged :canary. See the evaluate job's summary above for the"
+          echo "accuracy numbers to compare against the current :stable tag before"
+          echo "approving promote-production below."
+          echo "Real traffic-split canary rollout against a live target is"
+          echo "documented, not automated, in stage5/deployment.md -- this practice"
+          echo "repo has no live cluster/environment to route real traffic through."
+
+  promote-production:
+    runs-on: ubuntu-latest
+    needs: publish-canary
+    if: github.ref == 'refs/heads/main'
+    environment: production # the real approval gate, once required reviewers are configured
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote canary image to stable
+        run: |
+          docker pull "ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          docker tag "ghcr.io/${{ github.repository }}:${{ github.sha }}" \
+            "ghcr.io/${{ github.repository }}:stable"
+          docker tag "ghcr.io/${{ github.repository }}:${{ github.sha }}" \
+            "ghcr.io/${{ github.repository }}:latest"
+          docker push "ghcr.io/${{ github.repository }}:stable"
+          docker push "ghcr.io/${{ github.repository }}:latest"
+          echo "Promoted ${{ github.sha }} to :stable and :latest."

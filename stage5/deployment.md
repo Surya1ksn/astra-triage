@@ -24,37 +24,54 @@
 ## Deployment method
 
 - **Trigger**: merge to `main` after CI's `test` and `evaluate` jobs
-  both pass (`.github/workflows/ci.yml`'s `deploy` job has
-  `needs: [test, evaluate]`, so a deploy is structurally impossible if
-  either fails).
+  both pass (`.github/workflows/ci.yml`'s `publish-canary` job has
+  `needs: [test, evaluate]`, so nothing — not even a canary — publishes
+  if either fails).
 - **Target platform (assumption, stated explicitly since no real
   target exists in this practice repo)**: image is built and pushed to
   GitHub Container Registry (`ghcr.io`) by CI — that part is real and
-  working. Beyond the registry, this assumes a container orchestrator
-  pulls from there; picking **AWS ECS on Fargate** as the concrete
-  assumption (serverless, no cluster to manage, straightforward
-  task-definition image-tag swap for rollback). A real ticket-triage
-  service would run as a **queue-consuming worker** (subscribed to a
-  ticket-created event from the actual support platform) rather than
-  the CLI wrapper shipped here — becoming a real deployed service is a
-  known limitation, see PR description.
-- **Deploy approval**: `environment: production` in the workflow is
-  GitHub's mechanism for this, but it only takes effect once someone
-  with repo admin access configures **required reviewers** on a
-  `production` environment in the repo's Settings → Environments — that
-  is a one-time GitHub UI/API configuration step outside this
-  repository's files, not something committed code can set up. Flagging
-  explicitly so it isn't mistaken for already being enforced.
+  working, including the two-stage gate below. Beyond the registry, this
+  assumes a container orchestrator pulls from there; picking **AWS ECS
+  on Fargate** as the concrete assumption (serverless, no cluster to
+  manage, straightforward task-definition image-tag swap for rollback).
+  A real ticket-triage service would run as a **queue-consuming worker**
+  (subscribed to a ticket-created event from the actual support
+  platform) rather than the CLI wrapper shipped here — becoming a real
+  deployed service is a known limitation, see PR description.
+- **Deploy approval**: implemented as two real, separate CI jobs, not
+  just documentation:
+  - `publish-canary` runs automatically on a green `main` (under a
+    `staging` GitHub Environment, no approval expected) and pushes the
+    image tagged by commit SHA and `:canary`.
+  - `promote-production` runs under the `production` GitHub Environment
+    and re-tags that same image as `:stable`/`:latest`. This only
+    becomes a real manual approval gate once someone with repo admin
+    access configures **required reviewers** on the `production`
+    environment in Settings → Environments — a one-time GitHub UI/API
+    step outside this repository's files. Flagging explicitly so it
+    isn't mistaken for already being enforced; until configured,
+    `promote-production` runs automatically right after `publish-canary`.
 
 ## Rollback / canary strategy
 
-- **Canary rollout**: route a small percentage of incoming tickets
-  (e.g. 5%) to the new image's task set alongside the existing stable
-  version for a fixed observation window (e.g. 1 hour or N tickets,
-  whichever comes first). Compare, canary vs. stable, over that window:
+- **What's real vs. documented**: the publish/promote *gate* between
+  canary and production is a working mechanism in
+  `.github/workflows/ci.yml` today (see above) — a human can require
+  themselves to click approve before `promote-production` runs, and the
+  `evaluate` job's accuracy numbers are written to the run's job summary
+  for that human to actually look at first. What's still documented-only
+  is everything past the container registry: real traffic-splitting,
+  live-sample metric comparison, and automatic rollback all require a
+  live orchestrator this practice repo doesn't have.
+- **Canary rollout (target-platform layer, once a real orchestrator
+  exists)**: route a small percentage of incoming tickets (e.g. 5%) to
+  the `:canary` tag's task set alongside the existing `:stable` version
+  for a fixed observation window (e.g. 1 hour or N tickets, whichever
+  comes first). Compare, canary vs. stable, over that window:
   golden-set-equivalent accuracy on a live sample, escalation rate, and
   error/internal-error-escalation rate. Widen in stages (5% → 25% → 100%)
-  only if all three stay within tolerance at each stage.
+  only if all three stay within tolerance at each stage — mirrored at
+  the CI layer today by the `publish-canary` → `promote-production` gate.
 - **Automatic rollback triggers**: (1) live-sampled evaluation accuracy
   drops below the same 0.85 gate used in CI; (2) internal-error
   escalation rate (see `graph.py`'s exception-containment path) exceeds
