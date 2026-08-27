@@ -1,30 +1,18 @@
 """
 Astra Triage golden-set evaluation.
 
-STAGE 4 TODO:
-    Complete `run_evaluation()` so it:
+Runs every case in golden_set.json through astra.graph.run_ticket and
+scores classification_accuracy and routing_accuracy against the
+configured quality_thresholds. Used both as a library (stage4/tests,
+stage5's CI evaluate job) and as a script (`python stage4/evaluation.py`,
+exits non-zero on failure to gate deployment).
 
-    1. Loads stage4/golden_set.json.
-    2. Runs every case through astra.graph.run_ticket (Stage 3 must be
-       done first).
-    3. Computes:
-       - classification_accuracy: fraction of cases where
-         state.classification.category == case["expected_category"].
-       - routing_accuracy: fraction of cases where the actual outcome
-         ("escalate" if state.escalated else "draft") matches
-         case["expected_outcome"].
-    4. Compares both against golden_set["quality_thresholds"], and
-       returns/raises a clear pass/fail result plus a per-case breakdown
-       of mismatches (id, expected vs actual) for debugging.
-    5. Is runnable both as a library function (used by stage4/tests and
-       by stage5's CI pipeline) and as a script:
-
-           python stage4/evaluation.py
-
-       which should print a summary and exit non-zero if either threshold
-       isn't met (this is what stage5/pipeline.yml gates deployment on).
-
-    Currently this is a stub that raises NotImplementedError.
+Explicitly adds the repo root to sys.path before importing astra: running
+this file directly (`python stage4/evaluation.py`, the invocation this
+module's own script mode is meant to support) only puts this file's own
+directory on sys.path, not the repo root, so `import astra` would
+otherwise fail outside of pytest (which adds the repo root itself via
+pyproject.toml's pythonpath setting).
 """
 
 from __future__ import annotations
@@ -33,6 +21,11 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from astra.graph import run_ticket  # noqa: E402
+from astra.retrieval import KnowledgeBase  # noqa: E402
 
 GOLDEN_SET_PATH = Path(__file__).parent / "golden_set.json"
 
@@ -51,8 +44,49 @@ def load_golden_set() -> dict:
 
 
 def run_evaluation() -> EvaluationResult:
-    """TODO: implement per the module docstring."""
-    raise NotImplementedError("Implement golden-set evaluation (Stage 4).")
+    golden = load_golden_set()
+    thresholds = golden["quality_thresholds"]
+    knowledge_base = KnowledgeBase()
+
+    correct_classification = 0
+    correct_routing = 0
+    mismatches: list[dict] = []
+
+    for case in golden["cases"]:
+        state = run_ticket(case["subject"], case["body"], knowledge_base=knowledge_base)
+        actual_category = state.classification.category if state.classification else None
+        actual_outcome = "escalate" if state.escalated else "draft"
+
+        classification_ok = actual_category == case["expected_category"]
+        routing_ok = actual_outcome == case["expected_outcome"]
+        correct_classification += classification_ok
+        correct_routing += routing_ok
+
+        if not (classification_ok and routing_ok):
+            mismatches.append(
+                {
+                    "id": case["id"],
+                    "expected_category": case["expected_category"],
+                    "actual_category": actual_category,
+                    "expected_outcome": case["expected_outcome"],
+                    "actual_outcome": actual_outcome,
+                }
+            )
+
+    total = len(golden["cases"])
+    classification_accuracy = correct_classification / total
+    routing_accuracy = correct_routing / total
+    passed = (
+        classification_accuracy >= thresholds["min_classification_accuracy"]
+        and routing_accuracy >= thresholds["min_routing_accuracy"]
+    )
+
+    return EvaluationResult(
+        classification_accuracy=classification_accuracy,
+        routing_accuracy=routing_accuracy,
+        passed=passed,
+        mismatches=mismatches,
+    )
 
 
 def main() -> None:
