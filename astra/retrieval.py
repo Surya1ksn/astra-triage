@@ -22,7 +22,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from astra import config
 
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?:])\s+")
+_LINE_JOIN_RE = re.compile(r"\s*\n\s*")
 
 
 @dataclass
@@ -33,21 +35,44 @@ class Document:
 
 
 def _split_into_chunks(text: str) -> list[str]:
-    """Sentence/line-level chunks used only for TF-IDF scoring precision.
+    """Sentence-level chunks used only for TF-IDF scoring precision.
 
     Whole-document vectors under-score short, precise queries against long
     articles (a real query scored 0.20 similarity against a ~100-word
     document that a human would call clearly relevant). Splitting into
-    chunks for indexing — while still returning the parent Document for
-    citation/drafting context — fixes that without losing article-level
+    chunks for indexing -- while still returning the parent Document for
+    citation/drafting context -- fixes that without losing article-level
     grounding.
+
+    Splits on blank-line paragraph boundaries first and joins each
+    paragraph's wrapped lines before sentence-splitting -- splitting on
+    every newline instead (an earlier version of this function) tore
+    sentences apart at the markdown source's soft line-wraps, e.g.
+    "...verify the" / "last three transactions..." as two unrelated
+    chunks, which measurably hurt retrieval of real queries.
+
+    HTML comment blocks (<!-- ... -->) are excluded from the index: they
+    aren't customer-facing content and shouldn't influence ranking. One
+    such block in this knowledge base carries a planted prompt-injection
+    payload (see stage3/NOTES.md) that, when it was indexed as an
+    ordinary chunk, scored a spurious 0.47 similarity against an
+    unrelated technical-error query. It's excluded from *scoring* only --
+    the full document text (comment included) still reaches draft.py
+    whenever the document is legitimately retrieved via its real content,
+    which is what the prompt-injection defense is meant to be tested
+    against.
     """
-    candidates = (
-        line.strip()
-        for line in _SENTENCE_SPLIT_RE.split(text)
-        if line.strip() and not line.strip().startswith("#")
-    )
-    return [c for c in candidates if len(c) > 5]
+    chunks: list[str] = []
+    for paragraph in _PARAGRAPH_SPLIT_RE.split(text):
+        paragraph = paragraph.strip()
+        if not paragraph or paragraph.startswith("<!--"):
+            continue
+        joined = _LINE_JOIN_RE.sub(" ", paragraph).lstrip("#").strip()
+        for sentence in _SENTENCE_SPLIT_RE.split(joined):
+            sentence = sentence.strip()
+            if len(sentence) > 5:
+                chunks.append(sentence)
+    return chunks
 
 
 def load_documents() -> list[Document]:

@@ -35,7 +35,10 @@ def _get_threshold(env_var: str, default: float) -> float:
 
 
 CLASSIFICATION_THRESHOLD = _get_threshold("ASTRA_CLASSIFICATION_THRESHOLD", 0.55)
-RETRIEVAL_THRESHOLD = _get_threshold("ASTRA_RETRIEVAL_THRESHOLD", 0.30)
+# 0.25, not the originally-suggested 0.30: measured against
+# stage4/golden_set.json with the offline TF-IDF retriever, 0.30 missed a
+# real relevant match (0.281 similarity) on a legitimate billing query.
+RETRIEVAL_THRESHOLD = _get_threshold("ASTRA_RETRIEVAL_THRESHOLD", 0.25)
 
 KNOWLEDGE_BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "knowledge_base")
 
