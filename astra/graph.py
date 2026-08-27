@@ -6,10 +6,18 @@ LangGraph state machine per stage1/diagrams/pipeline.md. Routing
 decisions are pure functions (_decide_after_classify,
 _decide_after_retrieve) independently testable from LangGraph itself;
 the conditional edges just call them.
+
+run_ticket() catches any exception raised anywhere in the graph and
+converts it into an escalation rather than letting it surface to the
+caller (stage5/production_checklist.md: "errors in any node are caught
+and routed to escalation rather than surfacing a raw exception") --
+escalation is the safety net for this service, so a bug should degrade
+to "a human looks at it" rather than crash the request.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,6 +27,8 @@ from astra import config
 from astra.classifier import Classification, classify
 from astra.draft import draft_response
 from astra.retrieval import Document, KnowledgeBase
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -104,5 +114,27 @@ def build_graph(knowledge_base: KnowledgeBase | None = None) -> Any:
 
 def run_ticket(subject: str, body: str, knowledge_base: KnowledgeBase | None = None) -> TriageState:
     compiled = build_graph(knowledge_base)
-    result = compiled.invoke(TriageState(subject=subject, body=body))
-    return TriageState(**result)
+    try:
+        result = compiled.invoke(TriageState(subject=subject, body=body))
+        state = TriageState(**result)
+    except Exception as exc:
+        # Deliberately broad: any node failure must escalate, not crash the request.
+        logger.warning("Ticket triage failed with %s, escalating", type(exc).__name__)
+        return TriageState(
+            subject=subject,
+            body=body,
+            escalated=True,
+            escalation_reason=f"internal error during triage ({type(exc).__name__})",
+        )
+
+    # Metadata only -- never log ticket subject/body (may contain customer PII)
+    # or anything from config (API keys).
+    logger.info(
+        "Ticket triage complete: category=%s confidence=%.2f retrieved=%d escalated=%s reason=%s",
+        state.classification.category if state.classification else None,
+        state.classification.confidence if state.classification else 0.0,
+        len(state.retrieved),
+        state.escalated,
+        state.escalation_reason,
+    )
+    return state
